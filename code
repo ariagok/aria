@@ -1,0 +1,81 @@
+import os
+import json
+import shutil
+import zipfile
+
+# Paths to ZIP files
+zip1_path = "/content/Bio Team Annotations.v1i.coco.zip"
+zip2_path = "/content/Histological Identification.v1i.coco.zip"
+
+# Paths to extracted datasets
+extract_path1 = "/cotent/Bio_Team_Annotations"
+extract_path2 = "/content/Histological_Identification"
+merged_dataset_path = "/content/merged_dataset/"
+
+# Function to unzip datasets
+def unzip_dataset(zip_path, extract_path):
+    if os.path.exists(zip_path):
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_path)
+        print(f"Extracted {zip_path} to {extract_path}")
+    else:
+        print(f"ZIP file not found: {zip_path}")
+
+# Unzip both datasets
+unzip_dataset(zip1_path, extract_path1)
+unzip_dataset(zip2_path, extract_path2)
+
+# Ensure merged dataset structure exists
+for split in ["train", "test", "valid"]:
+    os.makedirs(os.path.join(merged_dataset_path, split, "images"), exist_ok=True)
+
+# Copy images from both datasets
+def merge_images(source_folder, target_folder):
+    if os.path.exists(source_folder):
+        for filename in os.listdir(source_folder):
+            file_path = os.path.join(source_folder, filename)
+            if os.path.isfile(file_path):
+                shutil.copy(file_path, target_folder)
+
+for split in ["train", "test", "valid"]:
+    merge_images(os.path.join(extract_path1, split), os.path.join(merged_dataset_path, split, "images"))
+    merge_images(os.path.join(extract_path2, split), os.path.join(merged_dataset_path, split, "images"))
+
+# Merge COCO annotation files
+def merge_coco_annotations(file1, file2, output_file):
+    with open(file1, 'r') as f:
+        coco1 = json.load(f)
+    with open(file2, 'r') as f:
+        coco2 = json.load(f)
+
+    max_image_id = max([img["id"] for img in coco1["images"]], default=0)
+    max_annotation_id = max([anno["id"] for anno in coco1["annotations"]], default=0)
+
+    for img in coco2["images"]:
+        img["id"] += max_image_id + 1
+    for anno in coco2["annotations"]:
+        anno["id"] += max_annotation_id + 1
+        anno["image_id"] += max_image_id + 1
+
+    merged_coco = {
+        "info": coco1.get("info", {}),
+        "licenses": coco1.get("licenses", []),
+        "categories": coco1["categories"],
+        "images": coco1["images"] + coco2["images"],
+        "annotations": coco1["annotations"] + coco2["annotations"]
+    }
+
+    with open(output_file, 'w') as f:
+        json.dump(merged_coco, f, indent=4)
+
+# Merge annotation files
+for split in ["train", "test", "valid"]:
+    json1 = os.path.join(extract_path1, split, "_annotations.coco.json")
+    json2 = os.path.join(extract_path2, split, "_annotations.coco.json")
+    output_json = os.path.join(merged_dataset_path, split, "_annotations.coco.json")
+
+    if os.path.exists(json1) and os.path.exists(json2):
+        merge_coco_annotations(json1, json2, output_json)
+
+print("Merging complete! Your dataset is ready at:", merged_dataset_path)
+ 
